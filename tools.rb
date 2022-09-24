@@ -4,16 +4,17 @@ module Ellis
 
       # Look at a given model in console and give an output of the model attributes.
       # It also copies this to the clipboard
-      # Usage:
-      #  Ellis::Tools.annotate [Model], options
+      # Usage in console:
+      #  load '/{path to file}/tools.rb'
+      #  Ellis::Tools.annotate [Model], *options
       #
       # Example:
       #  Ellis::Tools.annotate User, to_file: true
       #
       # Options:
-      #  to_clipboard: true|false   Default: true
-      #  to_screen: true|false      Default: true
-      #  to_file: true|false        Default: false
+      #  to_clipboard: true|false   Default: true   Copies the output to the clipboard
+      #  to_screen: true|false      Default: true   Pastes the output to the screen
+      #  to_file: true|false        Default: false  Appends the output to the model file
       #
       def annotate target, args = {}
         defaults = {
