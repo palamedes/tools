@@ -24,69 +24,14 @@ module Ellis
         }
         options = defaults.merge args
 
-        spc = longest_column_name_length(target) + 3
-
-        res = []
-
-        res << "# --- Model: '#{ActiveModel::Name.new(target).to_s}' Annotation"
-        res << "# Table Name: #{target.table_name}"
-        res << "#"
-        columns = target.columns.sort_by(&:name)
-
-        created_at = ""
-        updated_at = ""
-
-        columns.each do |col|
-          next unless col.name == target.primary_key
-          type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
-
-          opts = []
-          opts << "Primary Key"
-          opts << "default(#{col.default})" if col.default.present?
-          opts << "not null" unless col.null
-
-          res << "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}"
+        if !!(target.is_a?(Class) && target < ActiveRecord::Base)
+          annotate_model target, options
+        elsif !!(target.is_a?(Class) && target < ApplicationController)
+          annotate_controller target, options
+        else
+          puts "Error: I don't know what you're trying to do."
         end
-
-        res << "#"
-        columns.each do |col|
-          next if col.name == target.primary_key
-          type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
-
-          opts = []
-          opts << "default(#{col.default})" if col.default.present?
-          opts << "not null" unless col.null
-
-          line = "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}"
-
-          created_at = line if col.name == 'created_at'
-          updated_at = line if col.name == 'updated_at'
-
-          res << line unless col.name == 'created_at' or col.name == 'updated_at'
-        end
-
-        if !created_at.empty? || !updated_at.empty?
-          res << "#"
-          res << created_at
-          res << updated_at
-        end
-
-        puts "--- Model Annotation ---" if options[:to_screen]
-        puts res if options[:to_screen]
-        puts "---" if options[:to_screen] && !options[:to_clipboard]
-
-        puts "--- Copied to clipboard ---" if options[:to_clipboard]
-        pbcopy res if options[:to_clipboard]
-
-        puts "--- Appended to file ---" if options[:to_file]
-        write_to_file target, res if options[:to_file]
       end
-
-
-
-
-
-
 
       # ---- RANDOM CRAP BELOW
 
@@ -154,8 +99,71 @@ module Ellis
         keys
       end
 
-
       private
+
+      # Annotate Model -- See Annotate above for options
+      def annotate_model target, options
+        spc = longest_column_name_length(target) + 3
+
+        res = []
+        res << "# --- Model: '#{ActiveModel::Name.new(target).to_s}' Annotation"
+        res << "# Table Name: #{target.table_name}"
+        res << "#"
+        columns = target.columns.sort_by(&:name)
+
+        created_at = ""
+        updated_at = ""
+
+        columns.each do |col|
+          next unless col.name == target.primary_key
+          type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
+
+          opts = []
+          opts << "Primary Key"
+          opts << "default(#{col.default})" if col.default.present?
+          opts << "not null" unless col.null
+
+          res << "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}"
+        end
+
+        res << "#"
+        columns.each do |col|
+          next if col.name == target.primary_key
+          type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
+
+          opts = []
+          opts << "default(#{col.default})" if col.default.present?
+          opts << "not null" unless col.null
+
+          line = "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}"
+
+          created_at = line if col.name == 'created_at'
+          updated_at = line if col.name == 'updated_at'
+
+          res << line unless col.name == 'created_at' or col.name == 'updated_at'
+        end
+
+        if !created_at.empty? || !updated_at.empty?
+          res << "#"
+          res << created_at
+          res << updated_at
+        end
+
+        puts "--- Model Annotation ---" if options[:to_screen]
+        puts res if options[:to_screen]
+        puts "---" if options[:to_screen] && !options[:to_clipboard]
+
+        puts "--- Copied to clipboard ---" if options[:to_clipboard]
+        pbcopy res if options[:to_clipboard]
+
+        puts "--- Appended to file ---" if options[:to_file]
+        write_to_file target, res if options[:to_file]
+      end
+
+      # Annotate Controller -- See Annotate above for options
+      def annotate_controller target, options
+
+      end
 
       # Copy to Clipboard
       def pbcopy arg
