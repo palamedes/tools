@@ -163,6 +163,32 @@ module Ellis
       # Annotate Controller -- See Annotate above for options
       def annotate_controller target, options
 
+        # target.action_methods iterate through, find the route
+        #
+
+        routes = Rails.application.routes.routes
+        @r = []
+        routes.collect do |r|
+          if r.defaults[:controller] == 'home'
+            path = r.path.build_formatter
+            evals = {}
+            r.path.required_names.each do |r|
+              evals[r.to_sym] = ":#{r.to_s}"
+            end
+            @r << { controller: r.defaults[:controller],
+                    action: r.defaults[:action],
+                    method: r.verb,
+                    path: path.evaluate(evals)
+            }
+          end
+        end; nil
+
+        # ActionDispatch::Journey::Route
+        # ActionDispatch::Journey::Path::Pattern
+        # ActionDispatch::Journey::Format
+        #   .evaluate({id: ':id'})
+
+
       end
 
       # Copy to Clipboard
