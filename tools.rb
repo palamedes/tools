@@ -24,7 +24,7 @@ module Ellis
       #
       # @param target [Class] The ActiveRecord model or Rails controller to be annotated.
       # @param args [Hash] A hash of options to customize the behavior of the method.
-     def annotate target, args = {}
+      def annotate target, args = {}
         defaults = {
           to_clipboard: true,
           to_screen: true,
@@ -158,17 +158,22 @@ module Ellis
 
         # Getting columns and their details
         columns = target.columns.sort_by(&:name)
+        primary_key = target.primary_key
+        # Ensure primary key is processed first
+        primary_key_column = columns.detect { |col| col.name == primary_key }
+        other_columns = columns.reject { |col| col.name == primary_key }
+        ordered_columns = [primary_key_column] + other_columns
         indexes = target.connection.indexes(target.table_name)
-        index_info = {}
 
         created_at = ""
         updated_at = ""
 
-        columns.each do |col|
+        ordered_columns.each do |col|
+          next unless col  # In case primary key column is nil
           type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
 
           opts = []
-          opts << "Primary Key" if col.name == target.primary_key
+          opts << "Primary Key" if col.name == primary_key
           opts << "default(#{col.default})" if col.default.present?
           opts << "not null" unless col.null
 
@@ -190,7 +195,7 @@ module Ellis
           res << "#"
           res << "# Indexes"
           indexes.each do |index|
-            res << "#  #{index.name}: on #{index.columns.join(', ')}#{' (unique)' if index.unique}"
+            res << "#  #{index.name}: #{index.columns.join(', ')}#{' (unique)' if index.unique}"
           end
         end
 
