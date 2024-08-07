@@ -6,9 +6,10 @@ module Ellis
   class Tools
     class << self
 
-      # Provides a detailed annotation of ActiveRecord models or Rails controllers using the Audited gem. This method can output
-      # annotations directly to the console, copy them to the clipboard, or append them to the relevant model or controller files.
-      # It is designed to help developers quickly understand the structure and relationships of various components in their application.
+      # Provides a detailed annotation of ActiveRecord models or Rails controllers. This method can output annotations
+      # directly to the console, copy them to the clipboard, or append them to the relevant model or controller files.
+      # It is designed to help developers quickly understand the structure and relationships of various components in
+      # their application.
       #
       # Usage:
       #   load '/{path to file}/tools.rb'
