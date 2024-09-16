@@ -122,6 +122,47 @@ module Ellis
         keys
       end
 
+      # Returns a hash of required fields for the given model that are needed to save it.
+      # A required field is considered to be:
+      # 1. A field that is marked as "NOT NULL" in the database and does not have a default value (or with a default value).
+      # 2. A field that has a `validates_presence_of` or similar validation in the model.
+      #
+      # The returned hash will have field names as keys and their default value (if any) as the value.
+      # If there is no default value, the value will be `nil`.
+      #
+      # @param model [Class] the ActiveRecord model class to check.
+      # @return [Hash<String, Object>] the hash of required field names and their default values.
+      def required(model)
+        raise ArgumentError, 'Argument must be an ActiveRecord model class' unless model.is_a?(Class) && model < ActiveRecord::Base
+
+        required_fields = {}
+
+        # Step 1: Check database-level constraints (NOT NULL)
+        model.columns.each do |column|
+          # Skip auto-generated fields like 'id', 'created_at', and 'updated_at'
+          next if ['id', 'created_at', 'updated_at'].include?(column.name)
+
+          # If column is NOT NULL, it's required. Store its default value or nil if no default exists.
+          if !column.null
+            required_fields[column.name] = column.default
+          end
+        end
+
+        # Step 2: Check model-level validations (e.g., validates_presence_of)
+        model.validators.each do |validator|
+          if validator.is_a?(ActiveRecord::Validations::PresenceValidator)
+            validator.attributes.each do |attribute|
+              # Add the attribute to required fields unless it already exists (from the database check)
+              required_fields[attribute.to_s] ||= nil
+            end
+          end
+        end
+
+        # Sort the hash by keys in alphabetical order and return it
+        required_fields.sort.to_h
+      end
+
+
       private
 
       # Annotates an ActiveRecord model with schema details including column names, types, defaults, and indexes.
