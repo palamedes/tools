@@ -42,6 +42,122 @@ module Ellis
         end
       end
 
+      ##
+      # Finds and returns all possible ActiveRecord association paths between two models.
+      #
+      # This method performs a breadth-first search to discover all unique ways one model
+      # can be related to another through ActiveRecord associations. It is useful for
+      # understanding complex relationships in large Rails applications and tracing indirect
+      # connections between models.
+      #
+      # @param source [Class] The starting model class (must be an ActiveRecord::Base descendant).
+      # @param destination [Class] The target model class (must be an ActiveRecord::Base descendant).
+      # @param max_depth [Integer] Maximum allowed relationship depth to prevent infinite traversal. Default: 10.
+      # @param verbose [Boolean] Whether to print progress updates to the console. Default: true.
+      # @param max_steps [Integer] Maximum number of traversal steps before aborting the search. Default: 100,000.
+      #
+      # @return [Array<String>]
+      #   An array of formatted strings, each representing a valid relationship path between the models.
+      #   If no path is found, returns a message indicating that no relationship path exists.
+      #
+      # @example
+      #   Ellis::Tools.relations(User, Organization)
+      #   # => [
+      #   #   "User belongs_to :current_organization -> Organization",
+      #   #   "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
+      #   # ]
+      def relations(source, destination, max_depth = 10, verbose: true, max_steps: 100_000)
+        # Validate that source is a valid ActiveRecord model class
+        unless source.is_a?(Class) && source < ActiveRecord::Base
+          return "Error: Source must be an ActiveRecord model class."
+        end
+        # Validate that destination is a valid ActiveRecord model class
+        unless destination.is_a?(Class) && destination < ActiveRecord::Base
+          return "Error: Destination must be an ActiveRecord model class."
+        end
+        all_paths = []                       # Stores all found valid relationship paths
+        queue = [[source, []]]                # BFS queue initialized with the source model
+        steps_checked = 0                     # Tracks how many relationship steps we’ve evaluated
+        globally_visited = Set.new            # Prevents revisiting the same models unnecessarily
+        while queue.any?
+          current, path = queue.shift         # Dequeue the next model and its current path
+          steps_checked += 1
+          # Output progress every 500 steps if verbose mode is enabled
+          puts "🔄 Checked #{steps_checked} steps. Current: #{current.name}, Depth: #{path.size}" if verbose && (steps_checked % 500).zero?
+          # Hard stop if maximum number of steps is exceeded
+          return "Traversal aborted after #{steps_checked} steps." if steps_checked >= max_steps
+          # Skip any paths that exceed the max allowed depth
+          next if path.size > max_depth
+          # If we've reached the destination model, store the full path and continue exploring for more paths
+          if current == destination
+            all_paths << (path + [[current, nil]])
+            next
+          end
+          globally_visited.add(current)  # Mark current model as visited globally to prevent re-exploring
+          # Explore all associations for the current model
+          current.reflect_on_all_associations.each do |assoc|
+            assoc_class = safe_association_class(assoc)  # Safely resolve the associated class
+            next unless assoc_class                      # Skip if association doesn't resolve to a valid class
+            next if globally_visited.include?(assoc_class)  # Skip if this model has already been globally visited
+            # Enqueue the next model to explore with the updated path
+            queue << [assoc_class, path + [[current, assoc]]]
+          end
+        end
+        # Output completion message if verbose is enabled
+        puts "✅ Done. Checked #{steps_checked} steps. Found #{all_paths.size} path(s)." if verbose
+        # If no paths were found, return a helpful message
+        return "No relationship path found between #{source.name} and #{destination.name}" if all_paths.empty?
+        # Format the paths into readable strings and sort them alphabetically by the first relationship
+        result = all_paths.map { |p| format_relationship_path(p) }
+        result.sort_by! { |path| path.split(' -> ').first }
+        result
+      end
+
+      ##
+      # Compares two ActiveRecord objects and returns the differences in their attributes.
+      #
+      # This method is useful for auditing changes between two records, identifying discrepancies,
+      # or performing custom equality checks outside of ActiveRecord's built-in dirty tracking.
+      #
+      # @param obj1 [ActiveRecord::Base] The first object to compare (must respond to `.attributes`).
+      # @param obj2 [ActiveRecord::Base] The second object to compare (must respond to `.attributes`).
+      # @param ignore_keys [Array<Symbol, String>] Attributes to ignore during comparison (default: []).
+      # @param normalize [Boolean] Whether to normalize values for comparison (e.g., dates to strings). Default: true.
+      #
+      # @return [Hash<String, Array>]
+      #   A hash where each key is a differing attribute name, and the value is a two-element array
+      #   containing [value_in_obj1, value_in_obj2].
+      #
+      # @example
+      #   diff_objects(user1, user2, ignore_keys: [:updated_at, :id])
+      #   # => { "email" => ["old@example.com", "new@example.com"], "name" => ["John", "Johnny"] }
+      def diff_objects(obj1, obj2, ignore_keys: [], normalize: true)
+        # Ensure both objects implement .attributes
+        unless obj1.respond_to?(:attributes) && obj2.respond_to?(:attributes)
+          raise ArgumentError, "Both objects must respond to .attributes"
+        end
+        # Retrieve attribute hashes from both objects
+        attrs1 = obj1.attributes
+        attrs2 = obj2.attributes
+        # Build a complete list of unique keys across both objects, excluding ignored keys
+        all_keys = (attrs1.keys + attrs2.keys).uniq - ignore_keys.map(&:to_s)
+        diffs = {}
+        # Iterate through each attribute and compare values
+        all_keys.each do |key|
+          val1 = attrs1[key]
+          val2 = attrs2[key]
+          # Normalize values for consistent comparison (e.g., date objects to strings)
+          if normalize
+            val1 = normalize_value(val1)
+            val2 = normalize_value(val2)
+          end
+          # If the values differ, store them in the diffs hash
+          diffs[key] = [val1, val2] if val1 != val2
+        end
+        # Return only attributes with differences
+        diffs
+      end
+
       # Compares the execution times of two methods using the Ruby Benchmark module.
       # It executes each method a specified number of times and reports the execution time.
       #
@@ -90,6 +206,7 @@ module Ellis
         end
       end
 
+      ##
       # Retrieves attribute values for a given ActiveRecord object and formats them in a hash.
       # Dates are wrapped in quotes to ensure proper formatting.
       #
@@ -109,6 +226,7 @@ module Ellis
         res
       end
 
+      ##
       # Fetches and sorts the attribute names of a given ActiveRecord model class.
       #
       # @param model [Class] the ActiveRecord model class for which to retrieve attribute names.
@@ -122,6 +240,7 @@ module Ellis
         keys
       end
 
+      ##
       # Returns a hash of required fields for the given model that are needed to save it.
       # A required field is considered to be:
       # 1. A field that is marked as "NOT NULL" in the database and does not have a default value (or with a default value).
@@ -134,20 +253,16 @@ module Ellis
       # @return [Hash<String, Object>] the hash of required field names and their default values.
       def required(model)
         raise ArgumentError, 'Argument must be an ActiveRecord model class' unless model.is_a?(Class) && model < ActiveRecord::Base
-
         required_fields = {}
-
         # Step 1: Check database-level constraints (NOT NULL)
         model.columns.each do |column|
           # Skip auto-generated fields like 'id', 'created_at', and 'updated_at'
           next if ['id', 'created_at', 'updated_at'].include?(column.name)
-
           # If column is NOT NULL, it's required. Store its default value or nil if no default exists.
           if !column.null
             required_fields[column.name] = column.default
           end
         end
-
         # Step 2: Check model-level validations (e.g., validates_presence_of)
         model.validators.each do |validator|
           if validator.is_a?(ActiveRecord::Validations::PresenceValidator)
@@ -157,14 +272,13 @@ module Ellis
             end
           end
         end
-
         # Sort the hash by keys in alphabetical order and return it
         required_fields.sort.to_h
       end
 
-
       private
 
+      ##
       # Annotates an ActiveRecord model with schema details including column names, types, defaults, and indexes.
       # It can optionally output this annotation to the console, copy it to the clipboard, or append it to the model's file.
       #
@@ -185,19 +299,16 @@ module Ellis
       #
       # @example Annotate the User model and output to console and clipboard
       #   annotate_model(User, to_screen: true, to_clipboard: true)
-      #
       # @example Annotate the User model and append to the model file
       #   annotate_model(User, to_file: true)
       #
       # @return [void] This method outputs annotations based on the options provided and does not return a value.
       def annotate_model(target, options)
         spc = longest_column_name_length(target) + 3
-
         res = []
         res << "# --- Model: '#{ActiveModel::Name.new(target).to_s}' Annotation"
         res << "# Table Name: #{target.table_name}"
         res << "#"
-
         # Getting columns and their details
         columns = target.columns.sort_by(&:name)
         primary_key = target.primary_key
@@ -206,32 +317,26 @@ module Ellis
         other_columns = columns.reject { |col| col.name == primary_key }
         ordered_columns = [primary_key_column] + other_columns
         indexes = target.connection.indexes(target.table_name)
-
+        # set some defaults
         created_at = ""
         updated_at = ""
-
         ordered_columns.each do |col|
           next unless col  # In case primary key column is nil
           type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
-
           opts = []
           opts << "Primary Key" if col.name == primary_key
           opts << "default(#{col.default})" if col.default.present?
           opts << "not null" unless col.null
-
-          line = "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}"
-
+          validations = column_validations(target, col.name)
+          line = "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}#{" ~ #{validations.join(', ')}" if validations.any?}"
           created_at = line if col.name == 'created_at'
           updated_at = line if col.name == 'updated_at'
-
           res << line unless col.name == 'created_at' or col.name == 'updated_at'
         end
-
         # Adding created_at and updated_at at the end for readability
         res << "#" unless created_at.empty? && updated_at.empty?
         res << created_at unless created_at.empty?
         res << updated_at unless updated_at.empty?
-
         # Append index information at the bottom
         if indexes.any?
           res << "#"
@@ -240,17 +345,55 @@ module Ellis
             res << "#  #{index.name}: #{index.columns.join(', ')}#{' (unique)' if index.unique}"
           end
         end
-
         # Output options
         puts "--- Model Annotation ---" if options[:to_screen]
         puts res if options[:to_screen]
         puts "---" if options[:to_screen] && !options[:to_clipboard]
-
         puts "--- Copied to clipboard ---" if options[:to_clipboard]
         pbcopy res if options[:to_clipboard]
-
         puts "--- Appended to file ---" if options[:to_file]
         write_to_file target, res if options[:to_file]
+      end
+
+      ##
+      # Retrieves and formats validation rules for a specific column on an ActiveRecord model.
+      #
+      # This method inspects all validators applied to the given column and returns a list of
+      # formatted validation descriptions. Standard Rails validations are labeled accordingly,
+      # and custom validators are labeled using their class names.
+      #
+      # @param model [Class] The ActiveRecord model class being inspected.
+      # @param column_name [String, Symbol] The name of the column to check for validations.
+      #
+      # @return [Array<String>]
+      #   An array of validation descriptions. Examples include:
+      #   'presence', 'uniqueness', 'length(minimum=2, maximum=50)', 'numericality', 'custom(my_validator)'.
+      #
+      # @example
+      #   column_validations(User, :email)
+      #   # => ["presence", "uniqueness"]
+      #   column_validations(Product, :price)
+      #   # => ["numericality", "presence"]
+      def column_validations(model, column_name)
+        validations = []
+
+        model.validators_on(column_name.to_sym).each do |validator|
+          case validator
+          when ActiveModel::Validations::PresenceValidator
+            validations << 'presence'
+          when ActiveRecord::Validations::UniquenessValidator
+            validations << 'uniqueness'
+          when ActiveModel::Validations::LengthValidator
+            range = validator.options.slice(:minimum, :maximum).map { |k, v| "#{k}=#{v}" }.join(", ")
+            validations << "length(#{range})"
+          when ActiveModel::Validations::NumericalityValidator
+            validations << 'numericality'
+          else
+            # Catch custom validators and log their class names in snake_case
+            validations << "custom(#{validator.class.name.demodulize.underscore})"
+          end
+        end
+        validations
       end
 
       # Annotate Controller -- See Annotate above for options
@@ -284,22 +427,128 @@ module Ellis
 
       end
 
-      # Copy to Clipboard
+      ##
+      # Copies the given content to the system clipboard (macOS only).
+      #
+      # This method uses the `pbcopy` command-line utility available on macOS to
+      # copy text content directly to the clipboard.
+      #
+      # @param arg [String] The content to be copied to the clipboard.
+      #
+      # @return [void]
+      #
+      # @example
+      #   pbcopy("Hello, World!")
       def pbcopy arg
         IO.popen('pbcopy', 'w') { |io| io.puts arg }
       end
 
-      # Get the longest column name
+      ##
+      # Calculates the length of the longest column name in a given ActiveRecord model.
+      #
+      # This is primarily used to help align column annotations when generating
+      # formatted model documentation.
+      #
+      # @param target [Class] The ActiveRecord model class.
+      #
+      # @return [Integer] The length of the longest column name.
+      #
+      # @example
+      #   longest_column_name_length(User)  # => 12
       def longest_column_name_length target
         target.column_names.sort_by(&:length).last.length
       end
 
-      # Copy to End of File
+      ##
+      # Appends the given annotation content to the corresponding model source file.
+      #
+      # This method attempts to locate the model's source file under `app/models/`
+      # based on the class name and append the provided content at the end of the file.
+      #
+      # @param target [Class] The ActiveRecord model class whose file will be updated.
+      # @param arg [Array<String>, String] The annotation content to append. If an array is provided, it will be joined with newlines.
+      #
+      # @return [void]
+      #
+      # @todo Fix file name resolution for models with namespaces or non-standard file naming.
+      #
+      # @example
+      #   write_to_file(User, ["# == Annotations ==", "# name: string"])
       def write_to_file target, arg
         # @TODO File Name bug for split name files -- class.to_s.underscore
         model_file = target.name.split("::").map {|c| c.downcase }.join('/') + '.rb'
         file_path = Rails.root.join('app/models/').join(model_file)
         File.open(file_path, "a") { |f| f.puts arg }
+      end
+
+      ##
+      # Normalizes values for consistent comparison when diffing objects.
+      #
+      # This method is primarily used to ensure that values like dates and times
+      # are converted to strings before comparison, avoiding false positives due
+      # to differing object types but equivalent logical values.
+      #
+      # === Parameters
+      # * +value+ - The value to normalize.
+      #
+      # === Returns
+      # * The normalized value. Dates and times are converted to strings; all other values are returned as-is.
+      #
+      # === Example
+      #   normalize_value(Time.now)  # => "2025-05-15 14:30:00 -0400"
+      def normalize_value(value)
+        case value
+        when ActiveSupport::TimeWithZone, Time, DateTime, Date
+          # Convert date and time objects to string for comparison consistency
+          value.to_s
+        else
+          # Leave all other value types unchanged
+          value
+        end
+      end
+
+      ##
+      # Safely resolves the class associated with an ActiveRecord association.
+      #
+      # This prevents errors when dealing with invalid or polymorphic associations that
+      # may not have a directly resolvable class.
+      #
+      # === Parameters
+      # * +assoc+ - An ActiveRecord::Reflection::AssociationReflection object.
+      #
+      # === Returns
+      # * The associated class if it can be resolved, otherwise +nil+.
+      #
+      # === Example
+      #   safe_association_class(User.reflect_on_association(:organization))
+      #   # => Organization
+      def safe_association_class(assoc)
+        # Attempt to resolve the associated class; rescue errors and return nil if unresolved
+        assoc.klass rescue nil
+      end
+
+      ##
+      # Formats a relationship path into a readable string representation.
+      #
+      # This method converts a sequence of models and their associations into a
+      # human-readable path like:
+      #   "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
+      #
+      # === Parameters
+      # * +path+ - An array of [model, association] pairs representing the relationship path.
+      #
+      # === Returns
+      # * A formatted string showing the relationship path.
+      #
+      # === Example
+      #   format_relationship_path([[User, assoc1], [OrganizationUser, assoc2], [Organization, nil]])
+      #   # => "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
+      def format_relationship_path(path)
+        # Iterate through pairs of models and associations, formatting each step
+        path.each_cons(2).map do |(model, assoc), (next_model, _)|
+          assoc_part = assoc ? "#{assoc.macro} :#{assoc.name}" : ''
+          "#{model.name} #{assoc_part}".strip
+        end.join(" -> ") + " -> #{path.last[0].name}"  # Add the final model name at the end
       end
 
     end
