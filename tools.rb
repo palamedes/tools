@@ -66,7 +66,7 @@ module Ellis
       #   #   "User belongs_to :current_organization -> Organization",
       #   #   "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
       #   # ]
-      def relations(source, destination, max_depth = 10, verbose: true, max_steps: 100_000)
+      def relations(source, destination, max_depth = 10, verbose: false, max_steps: 100_000)
         # Validate that source is a valid ActiveRecord model class
         unless source.is_a?(Class) && source < ActiveRecord::Base
           return "Error: Source must be an ActiveRecord model class."
@@ -83,7 +83,7 @@ module Ellis
           current, path = queue.shift         # Dequeue the next model and its current path
           steps_checked += 1
           # Output progress every 500 steps if verbose mode is enabled
-          puts "🔄 Checked #{steps_checked} steps. Current: #{current.name}, Depth: #{path.size}" if verbose && (steps_checked % 500).zero?
+          puts "🔄 Checked #{steps_checked} steps. Current: #{current.name}, Depth: #{path.size}" if verbose && (steps_checked % 100).zero?
           # Hard stop if maximum number of steps is exceeded
           return "Traversal aborted after #{steps_checked} steps." if steps_checked >= max_steps
           # Skip any paths that exceed the max allowed depth
