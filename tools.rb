@@ -66,7 +66,7 @@ module Ellis
       #   #   "User belongs_to :current_organization -> Organization",
       #   #   "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
       #   # ]
-      def relations(source, destination, max_depth = 10, verbose: false, max_steps: 100_000)
+      def relations source, destination, max_depth = 10, verbose: false, max_steps: 100_000
         # Validate that source is a valid ActiveRecord model class
         unless source.is_a?(Class) && source < ActiveRecord::Base
           return "Error: Source must be an ActiveRecord model class."
@@ -131,7 +131,7 @@ module Ellis
       # @example
       #   diff_objects(user1, user2, ignore_keys: [:updated_at, :id])
       #   # => { "email" => ["old@example.com", "new@example.com"], "name" => ["John", "Johnny"] }
-      def diff_objects(obj1, obj2, ignore_keys: [], normalize: true)
+      def diff_objects obj1, obj2, ignore_keys: [], normalize: true
         # Ensure both objects implement .attributes
         unless obj1.respond_to?(:attributes) && obj2.respond_to?(:attributes)
           raise ArgumentError, "Both objects must respond to .attributes"
@@ -251,7 +251,7 @@ module Ellis
       #
       # @param model [Class] the ActiveRecord model class to check.
       # @return [Hash<String, Object>] the hash of required field names and their default values.
-      def required(model)
+      def required model
         raise ArgumentError, 'Argument must be an ActiveRecord model class' unless model.is_a?(Class) && model < ActiveRecord::Base
         required_fields = {}
         # Step 1: Check database-level constraints (NOT NULL)
@@ -303,7 +303,7 @@ module Ellis
       #   annotate_model(User, to_file: true)
       #
       # @return [void] This method outputs annotations based on the options provided and does not return a value.
-      def annotate_model(target, options)
+      def annotate_model target, options
         spc = longest_column_name_length(target) + 3
         res = []
         res << "# --- Model: '#{ActiveModel::Name.new(target).to_s}' Annotation"
@@ -374,7 +374,7 @@ module Ellis
       #   # => ["presence", "uniqueness"]
       #   column_validations(Product, :price)
       #   # => ["numericality", "presence"]
-      def column_validations(model, column_name)
+      def column_validations model, column_name
         validations = []
 
         model.validators_on(column_name.to_sym).each do |validator|
@@ -496,7 +496,7 @@ module Ellis
       #
       # === Example
       #   normalize_value(Time.now)  # => "2025-05-15 14:30:00 -0400"
-      def normalize_value(value)
+      def normalize_value value
         case value
         when ActiveSupport::TimeWithZone, Time, DateTime, Date
           # Convert date and time objects to string for comparison consistency
@@ -522,7 +522,7 @@ module Ellis
       # === Example
       #   safe_association_class(User.reflect_on_association(:organization))
       #   # => Organization
-      def safe_association_class(assoc)
+      def safe_association_class assoc
         # Attempt to resolve the associated class; rescue errors and return nil if unresolved
         assoc.klass rescue nil
       end
@@ -543,7 +543,7 @@ module Ellis
       # === Example
       #   format_relationship_path([[User, assoc1], [OrganizationUser, assoc2], [Organization, nil]])
       #   # => "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
-      def format_relationship_path(path)
+      def format_relationship_path path
         # Iterate through pairs of models and associations, formatting each step
         path.each_cons(2).map do |(model, assoc), (next_model, _)|
           assoc_part = assoc ? "#{assoc.macro} :#{assoc.name}" : ''
