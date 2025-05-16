@@ -102,13 +102,6 @@ module Ellis
       # @return [Array<String>]
       #   An array of formatted strings, each representing a valid relationship path between the models.
       #   If no path is found, returns a message indicating that no relationship path exists.
-      #
-      # @example
-      #   Ellis::Tools.relations(User, Organization)
-      #   # => [
-      #   #   "User belongs_to :current_organization -> Organization",
-      #   #   "User has_many :organization_users -> OrganizationUser belongs_to :organization -> Organization"
-      #   # ]
       def relations source, destination, max_depth = 10, verbose: false, max_steps: 100_000
         # Validate that source is a valid ActiveRecord model class
         unless source.is_a?(Class) && source < ActiveRecord::Base
@@ -170,10 +163,6 @@ module Ellis
       # @return [Hash<String, Array>]
       #   A hash where each key is a differing attribute name, and the value is a two-element array
       #   containing [value_in_obj1, value_in_obj2].
-      #
-      # @example
-      #   diff_objects(user1, user2, ignore_keys: [:updated_at, :id])
-      #   # => { "email" => ["old@example.com", "new@example.com"], "name" => ["John", "Johnny"] }
       def diff_objects obj1, obj2, ignore_keys: [], normalize: true
         # Ensure both objects implement .attributes
         unless obj1.respond_to?(:attributes) && obj2.respond_to?(:attributes)
@@ -411,12 +400,6 @@ module Ellis
       # @return [Array<String>]
       #   An array of validation descriptions. Examples include:
       #   'presence', 'uniqueness', 'length(minimum=2, maximum=50)', 'numericality', 'custom(my_validator)'.
-      #
-      # @example
-      #   column_validations(User, :email)
-      #   # => ["presence", "uniqueness"]
-      #   column_validations(Product, :price)
-      #   # => ["numericality", "presence"]
       def column_validations model, column_name
         validations = []
 
@@ -479,9 +462,6 @@ module Ellis
       # @param arg [String] The content to be copied to the clipboard.
       #
       # @return [void]
-      #
-      # @example
-      #   pbcopy("Hello, World!")
       def pbcopy arg
         IO.popen('pbcopy', 'w') { |io| io.puts arg }
       end
@@ -505,24 +485,51 @@ module Ellis
       ##
       # Appends the given annotation content to the corresponding model source file.
       #
-      # This method attempts to locate the model's source file under `app/models/`
-      # based on the class name and append the provided content at the end of the file.
+      # This method attempts to locate the model's source file using Ruby's Module reflection (`const_source_location`).
+      # If the file path cannot be determined, it will skip writing and output an error message.
       #
       # @param target [Class] The ActiveRecord model class whose file will be updated.
       # @param arg [Array<String>, String] The annotation content to append. If an array is provided, it will be joined with newlines.
       #
       # @return [void]
-      #
-      # @todo Fix file name resolution for models with namespaces or non-standard file naming.
-      #
-      # @example
-      #   write_to_file(User, ["# == Annotations ==", "# name: string"])
-      def write_to_file target, arg
-        # @TODO File Name bug for split name files -- class.to_s.underscore
-        model_file = target.name.split("::").map {|c| c.downcase }.join('/') + '.rb'
-        file_path = Rails.root.join('app/models/').join(model_file)
-        File.open(file_path, "a") { |f| f.puts arg }
+      def write_to_file(target, arg)
+        # Locate the source file for the given model using Ruby's Module reflection.
+        model_file_path = Module.const_source_location(target.name)&.first
+        # Exit early if the file cannot be located.
+        unless model_file_path && File.exist?(model_file_path)
+          puts "❌ Could not determine the file path for #{target.name}. Skipping file write."
+          return
+        end
+        # Read the current content of the model file.
+        content = File.read(model_file_path)
+        start_marker = "# --- Model: '#{target.name}' Annotation"
+        # Remove any existing annotation by locating the last occurrence of the annotation marker.
+        last_marker_index = content.rindex(start_marker)
+        if last_marker_index
+          # Remove everything from the marker to the end of the file, also trim trailing whitespace.
+          content = content[0...last_marker_index].rstrip
+        else
+          # If no annotation exists, simply remove any trailing blank lines.
+          content = content.rstrip
+        end
+        # Prepare the new annotation content.
+        new_annotation = arg.is_a?(Array) ? arg.join("\n") : arg
+        # Ensure the annotation marker is included at the start of the annotation.
+        unless new_annotation.include?(start_marker)
+          new_annotation = start_marker + "\n" + new_annotation
+        end
+        # Ensure exactly one blank line between the end of the class and the annotation.
+        updated_content = content + "\n\n" + new_annotation + "\n"
+        # Write the updated content back to the model file.
+        File.write(model_file_path, updated_content)
+        puts "✅ Annotation successfully updated in #{model_file_path}"
       end
+
+
+
+
+
+
 
       ##
       # Normalizes values for consistent comparison when diffing objects.
