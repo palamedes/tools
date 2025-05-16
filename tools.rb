@@ -1,7 +1,50 @@
-# The Ellis::Tools module provides utility functions to assist developers in annotating and debugging Rails applications.
-# It includes methods for annotating ActiveRecord models and Rails controllers by leveraging metadata about their configurations
-# and associations. This is particularly useful for generating documentation or providing insights into the application's
-# structure directly from the Rails console.
+# The Ellis::Tools module provides a collection of utility functions to assist developers
+# in annotating, debugging, and analyzing Ruby on Rails applications directly from the console.
+#
+# This module focuses on improving developer productivity by exposing application structure,
+# model relationships, data comparisons, and performance benchmarks.
+#
+# === Features
+#
+# * **Model Annotations**
+#   - Generate detailed schema annotations for ActiveRecord models, including columns, types, defaults,
+#     nullability, validations, and indexes.
+#   - Output annotations to the console, copy to clipboard, or append directly to model files.
+#
+# * **Relationship Tracing**
+#   - Explore and visualize all possible ActiveRecord association paths between two models.
+#   - Supports configurable maximum depth and verbose progress reporting.
+#
+# * **Data Comparison**
+#   - Compare two ActiveRecord objects and highlight attribute differences.
+#   - Supports normalization of data types (e.g., Date/Time objects) and ignoring specific attributes.
+#
+# * **Benchmarking**
+#   - Easily benchmark and compare the execution time of two methods using Ruby’s Benchmark library.
+#
+# * **Data Export**
+#   - Extract model data as hashes with optional pagination and clipboard support.
+#
+# * **Clipboard Integration**
+#   - Copy output directly to the macOS clipboard using the `pbcopy` command.
+#
+# * **Console Utilities**
+#   - Methods for retrieving model attribute keys, required fields, and dynamically writing content to model files.
+#
+# === Example Usage
+#
+#   # Annotate the User model and display results in the console
+#   Ellis::Tools.annotate User
+#
+#   # Find all relationship paths between User and Organization
+#   Ellis::Tools.relations User, Organization
+#
+#   # Compare two objects for differences
+#   Ellis::Tools.diff_objects user1, user2, ignore_keys: [:updated_at, :id]
+#
+#   # Benchmark two methods
+#   Ellis::Tools.bench :old_method, :new_method
+#
 module Ellis
   class Tools
     class << self
