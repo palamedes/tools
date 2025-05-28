@@ -353,14 +353,18 @@ module Ellis
         created_at = ""
         updated_at = ""
         ordered_columns.each do |col|
-          next unless col  # In case primary key column is nil
+          next unless col
           type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
           opts = []
           opts << "Primary Key" if col.name == primary_key
           opts << "default(#{col.default})" if col.default.present?
           opts << "not null" unless col.null
           validations = column_validations(target, col.name)
-          line = "#  #{col.name.ljust(spc)}:#{type_limit.ljust(15)}#{opts.compact.join(', ')}#{" ~ #{validations.join(', ')}" if validations.any?}"
+          opts_str = opts.compact.join(', ')
+          validations_str = validations.any? ? " ~ #{validations.join(', ')}" : ""
+          # Pad only if there's something after the type
+          type_str = (opts_str.empty? && validations_str.empty?) ? type_limit : type_limit.ljust(15)
+          line = "#  #{col.name.ljust(spc)}:#{type_str}#{opts_str}#{validations_str}"
           created_at = line if col.name == 'created_at'
           updated_at = line if col.name == 'updated_at'
           res << line unless col.name == 'created_at' or col.name == 'updated_at'
@@ -423,34 +427,46 @@ module Ellis
       end
 
       # Annotate Controller -- See Annotate above for options
-      def annotate_controller target, options
-
-        # target.action_methods iterate through, find the route
-        #
-
+      def annotate_controller(target, options)
+        controller_name = target.name.underscore.gsub('_controller', '')
         routes = Rails.application.routes.routes
-        @r = []
-        routes.collect do |r|
-          if r.defaults[:controller] == 'home'
-            path = r.path.build_formatter
-            evals = {}
-            r.path.required_names.each do |r|
-              evals[r.to_sym] = ":#{r.to_s}"
-            end
-            @r << { controller: r.defaults[:controller],
-                    action: r.defaults[:action],
-                    method: r.verb,
-                    path: path.evaluate(evals)
-            }
+
+        annotations = []
+        annotations << "# --- Controller: '#{target.name}' Annotation"
+        annotations << "#"
+        annotations << "# Available Routes:"
+        annotations << "#"
+
+        matched_routes = routes.select do |r|
+          r.defaults[:controller] == controller_name
+        end
+
+        matched_routes.each do |r|
+          verb = r.verb.is_a?(Regexp) ? r.verb.source.gsub("^", "").gsub("$", "") : r.verb
+          path = r.path.spec.to_s.gsub("(.:format)", "")
+          action = r.defaults[:action]
+          annotations << "# [#{verb}] #{path}  => #{action}"
+        end
+
+        annotations << "#"
+        annotations << "# Defined Actions:"
+        annotations << "#"
+
+        target.action_methods.sort.each do |action|
+          route_info = matched_routes.find { |r| r.defaults[:action] == action }
+          if route_info
+            verb = route_info.verb.is_a?(Regexp) ? route_info.verb.source.gsub("^", "").gsub("$", "") : route_info.verb
+            path = route_info.path.spec.to_s.gsub("(.:format)", "")
+            annotations << "# #{action}: [#{verb}] #{path}"
+          else
+            annotations << "# #{action}: (no route found)"
           end
-        end; nil
+        end
 
-        # ActionDispatch::Journey::Route
-        # ActionDispatch::Journey::Path::Pattern
-        # ActionDispatch::Journey::Format
-        #   .evaluate({id: ':id'})
-
-
+        puts "--- Controller Annotation ---" if options[:to_screen]
+        puts annotations if options[:to_screen]
+        puts "--- Copied to clipboard ---" if options[:to_clipboard]
+        pbcopy annotations if options[:to_clipboard]
       end
 
       ##
