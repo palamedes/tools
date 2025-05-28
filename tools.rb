@@ -406,7 +406,7 @@ module Ellis
       #   'presence', 'uniqueness', 'length(minimum=2, maximum=50)', 'numericality', 'custom(my_validator)'.
       def column_validations model, column_name
         validations = []
-
+        # Standard column-level validations
         model.validators_on(column_name.to_sym).each do |validator|
           case validator
           when ActiveModel::Validations::PresenceValidator
@@ -419,11 +419,18 @@ module Ellis
           when ActiveModel::Validations::NumericalityValidator
             validations << 'numericality'
           else
-            # Catch custom validators and log their class names in snake_case
             validations << "custom(#{validator.class.name.demodulize.underscore})"
           end
         end
-        validations
+        # Handle presence validations on associations (e.g., validates :discharge, presence: true)
+        model.reflect_on_all_associations(:belongs_to).each do |assoc|
+          if column_name == assoc.foreign_key
+            model.validators_on(assoc.name).each do |validator|
+              validations << 'presence' if validator.is_a?(ActiveModel::Validations::PresenceValidator)
+            end
+          end
+        end
+        validations.uniq
       end
 
       # Annotate Controller -- See Annotate above for options
