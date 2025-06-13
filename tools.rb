@@ -283,16 +283,16 @@ module Ellis
       #
       # @param model [Class] the ActiveRecord model class to check.
       # @return [Hash<String, Object>] the hash of required field names and their default values.
-      def required model
+      def required model, validators_only: true
         raise ArgumentError, 'Argument must be an ActiveRecord model class' unless model.is_a?(Class) && model < ActiveRecord::Base
         required_fields = {}
-        # Step 1: Check database-level constraints (NOT NULL)
-        model.columns.each do |column|
-          # Skip auto-generated fields like 'id', 'created_at', and 'updated_at'
-          next if ['id', 'created_at', 'updated_at'].include?(column.name)
-          # If column is NOT NULL, it's required. Store its default value or nil if no default exists.
-          if !column.null
-            required_fields[column.name] = column.default
+        # Step 1: Check database-level constraints (NOT NULL) if not skipping
+        unless validators_only
+          model.columns.each do |column|
+            # Skip auto-generated fields like 'id', 'created_at', and 'updated_at'
+            next if ['id', 'created_at', 'updated_at'].include?(column.name)
+            # If column is NOT NULL, it's required. Store its default value or nil if no default exists.
+            required_fields[column.name] = column.default if !column.null
           end
         end
         # Step 2: Check model-level validations (e.g., validates_presence_of)
