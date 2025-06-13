@@ -427,6 +427,7 @@ module Ellis
           if column_name == assoc.foreign_key
             model.validators_on(assoc.name).each do |validator|
               validations << 'presence' if validator.is_a?(ActiveModel::Validations::PresenceValidator)
+              validations << 'associated' if validator.is_a?(ActiveRecord::Validations::AssociatedValidator)
             end
           end
         end
