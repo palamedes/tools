@@ -297,10 +297,15 @@ module Ellis
         end
         # Step 2: Check model-level validations (e.g., validates_presence_of)
         model.validators.each do |validator|
-          if validator.is_a?(ActiveRecord::Validations::PresenceValidator)
+          if validator.is_a?(ActiveModel::Validations::PresenceValidator)
             validator.attributes.each do |attribute|
+              attr_name = attribute.to_s
+              # If the attribute is an association, convert it to its foreign key
+              if (assoc = model.reflect_on_association(attribute)) && assoc.belongs_to?
+                attr_name = assoc.foreign_key
+              end
               # Add the attribute to required fields unless it already exists (from the database check)
-              required_fields[attribute.to_s] ||= nil
+              required_fields[attr_name] ||= nil
             end
           end
         end
@@ -548,12 +553,6 @@ module Ellis
         File.write(model_file_path, updated_content)
         puts "✅ Annotation successfully updated in #{model_file_path}"
       end
-
-
-
-
-
-
 
       ##
       # Normalizes values for consistent comparison when diffing objects.
