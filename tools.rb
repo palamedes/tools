@@ -427,6 +427,7 @@ module Ellis
           opts << "Primary Key" if col.name == primary_key
           opts << "default(#{col.default})" if col.default.present?
           opts << "not null" unless col.null
+          opts << "enum" if target.defined_enums.key?(col.name)
           validations = column_validations(target, col.name)
           opts_str = opts.compact.join(', ')
           validations_str = validations.any? ? " ~ #{validations.join(', ')}" : ""
@@ -458,6 +459,15 @@ module Ellis
             res << "#  #{constraint['name']}: #{constraint['definition']}"
           end
         end
+        # # Append enum definitions if present
+        # enums = target.defined_enums
+        # if enums.any?
+        #   res << "#"
+        #   res << "# Enums"
+        #   enums.each do |name, values|
+        #     res << "#  #{name}: { #{values.map { |k,v| "#{k}: #{v}" }.join(', ')} }"
+        #   end
+        # end
         # Output options
         puts "--- Model Annotation ---" if options[:to_screen]
         puts res if options[:to_screen]
