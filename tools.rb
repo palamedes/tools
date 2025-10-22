@@ -386,6 +386,15 @@ module Ellis
             res << "#  #{index.name}: #{index.columns.join(', ')}#{' (unique)' if index.unique}"
           end
         end
+        # Append check constraint information if available
+        constraints = get_check_constraints(target)
+        if constraints.any?
+          res << "#"
+          res << "# Check Constraints"
+          constraints.each do |constraint|
+            res << "#  #{constraint['name']}: #{constraint['definition']}"
+          end
+        end
         # Output options
         puts "--- Model Annotation ---" if options[:to_screen]
         puts res if options[:to_screen]
@@ -622,6 +631,30 @@ module Ellis
           assoc_part = assoc ? "#{assoc.macro} :#{assoc.name}" : ''
           "#{model.name} #{assoc_part}".strip
         end.join(" -> ") + " -> #{path.last[0].name}"  # Add the final model name at the end
+      end
+
+      ##
+      # Retrieves all check constraints defined on a given table in PostgreSQL.
+      #
+      # @param model [Class] The ActiveRecord model whose table should be inspected.
+      # @return [Array<Hash>] A list of hashes, each containing :name and :definition for the constraint.
+      #
+      # @example
+      #   get_check_constraints(User)
+      #   # => [{ name: "age_check", definition: "CHECK ((age >= 0))" }]
+      def get_check_constraints(model)
+        table_name = model.table_name
+        sql = <<~SQL
+          SELECT conname AS name, pg_get_constraintdef(oid) AS definition
+          FROM pg_constraint
+          WHERE conrelid = '#{table_name}'::regclass
+            AND contype = 'c'
+          ORDER BY conname;
+        SQL
+        ActiveRecord::Base.connection.exec_query(sql).to_a
+      rescue StandardError => e
+        puts "⚠️  Could not retrieve check constraints for #{model.name}: #{e.message}"
+        []
       end
 
     end
