@@ -313,6 +313,69 @@ module Ellis
         required_fields.sort.to_h
       end
 
+      ##
+      # Lists all models in the application that have associations referencing a given model.
+      #
+      # This is extremely helpful when determining dependencies before deleting, renaming,
+      # or refactoring a model or table. It searches all ActiveRecord models in the
+      # application for `belongs_to`, `has_one`, `has_many`, and `has_and_belongs_to_many`
+      # associations that point to the given target model.
+      #
+      # === Parameters
+      # * +model+ - The ActiveRecord model class for which to find dependents.
+      # * +verbose+ - (Boolean) Whether to print each dependency to the console as it is found. Default: true.
+      # * +to_clipboard+ - (Boolean) When true, copies the dependency list to the macOS clipboard.
+      #
+      # === Example
+      #   Ellis::Tools.dependents(Patient)
+      #   # => Prints all models that reference Patient
+      #
+      # @return [Array<Hash>] A structured list of dependency details.
+      def dependents(model, verbose: true, to_clipboard: false)
+        raise ArgumentError, "Argument must be an ActiveRecord model class" unless model.is_a?(Class) && model < ActiveRecord::Base
+        dependencies = []
+        # Iterate through all loaded models in the application
+        ActiveRecord::Base.descendants.each do |candidate|
+          candidate.reflect_on_all_associations.each do |assoc|
+            assoc_class = safe_association_class(assoc)
+            next unless assoc_class == model
+
+            dependencies << {
+              model: candidate.name,
+              association_name: assoc.name,
+              macro: assoc.macro,
+              foreign_key: assoc.foreign_key,
+              dependent: assoc.options[:dependent],
+              polymorphic: assoc.polymorphic?,
+              as: assoc.options[:as]
+            }
+
+            if verbose
+              puts "🔗 #{candidate.name} #{assoc.macro} :#{assoc.name}" \
+                     " → #{model.name}" \
+                     "#{assoc.polymorphic? ? ' (polymorphic)' : ''}" \
+                     "#{assoc.options[:dependent] ? " [dependent: #{assoc.options[:dependent]}]" : ''}"
+            end
+          end
+        end
+
+        if dependencies.empty?
+          puts "ℹ️  No models reference #{model.name}" if verbose
+        else
+          puts "\n✅ Found #{dependencies.size} dependent association#{'s' if dependencies.size != 1}." if verbose
+        end
+        if to_clipboard && dependencies.any?
+          text = dependencies.map do |d|
+            "#{d[:model]} #{d[:macro]} :#{d[:association_name]} → #{model.name}" \
+              "#{d[:polymorphic] ? ' (polymorphic)' : ''}" \
+              "#{d[:dependent] ? " [dependent: #{d[:dependent]}]" : ''}"
+          end.join("\n")
+          pbcopy text
+          puts "📋 Copied #{dependencies.size} associations to clipboard."
+        end
+        dependencies
+      end
+
       private
 
       ##
