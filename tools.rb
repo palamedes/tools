@@ -425,7 +425,7 @@ module Ellis
           type_limit = col.limit.present? ? "#{col.type}(#{col.limit})" : "#{col.type}"
           opts = []
           opts << "Primary Key" if col.name == primary_key
-          opts << "default(#{col.default})" if col.default.present?
+          opts << "default(#{format_default(col)})" if col.default.present?
           opts << "not null" unless col.null
           opts << "enum" if target.defined_enums.key?(col.name)
           validations = column_validations(target, col.name)
@@ -728,6 +728,16 @@ module Ellis
       rescue StandardError => e
         puts "⚠️  Could not retrieve check constraints for #{model.name}: #{e.message}"
         []
+      end
+
+      def format_default(column)
+        value = column.default
+        case column.type
+        when :string, :text
+          %("#{value}")
+        else
+          value
+        end
       end
 
     end
