@@ -376,6 +376,28 @@ module Ellis
         dependencies
       end
 
+      ##
+      # Copies the given value to the system clipboard without printing or returning output.
+      # Arrays are joined with newlines, hashes are converted to YAML, and all other values
+      # are coerced to strings before copying.
+      #
+      # @param value [Object] The value to copy to the clipboard.
+      # @return [nil]
+      def clipboard(value)
+        text =
+          case value
+          when Array
+            value.join("\n")
+          when Hash
+            value.to_yaml
+          else
+            value.to_s
+          end
+
+        pbcopy(text)
+        nil
+      end
+
       private
 
       ##
