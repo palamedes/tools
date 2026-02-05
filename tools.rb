@@ -456,9 +456,13 @@ module Ellis
           # Pad only if there's something after the type
           type_str = (opts_str.empty? && validations_str.empty?) ? type_limit : type_limit.ljust(15)
           line = "#  #{col.name.ljust(spc)}:#{type_str}#{opts_str}#{validations_str}"
+          comment_line = format_column_comment(col)
           created_at = line if col.name == 'created_at'
           updated_at = line if col.name == 'updated_at'
-          res << line unless col.name == 'created_at' or col.name == 'updated_at'
+          unless col.name == 'created_at' || col.name == 'updated_at'
+            res << line
+            res << "##{comment_line}" if comment_line
+          end
         end
         # Adding created_at and updated_at at the end for readability
         res << "#" unless created_at.empty? && updated_at.empty?
@@ -595,7 +599,8 @@ module Ellis
       # @param arg [String] The content to be copied to the clipboard.
       #
       # @return [void]
-      def pbcopy arg
+      def pbcopy(arg)
+        return unless RbConfig::CONFIG['host_os'] =~ /darwin/
         IO.popen('pbcopy', 'w') { |io| io.puts arg }
       end
 
@@ -752,14 +757,36 @@ module Ellis
         []
       end
 
+      ##
+      # Formats a column's default value for annotation output based on its database type.
+      #
+      # Strings are wrapped in quotes, booleans are normalized to true/false,
+      # and all other types are returned as-is.
+      #
+      # @param column [ActiveRecord::ConnectionAdapters::Column]
+      # @return [String, Object] Formatted default value suitable for annotations.
       def format_default(column)
         value = column.default
         case column.type
         when :string, :text
           %("#{value}")
+        when :boolean
+          value.to_s
         else
           value
         end
+      end
+
+      ##
+      # Formats a database column comment for inclusion in model annotations.
+      #
+      # Returns a prefixed, indented comment line or nil if no comment exists.
+      #
+      # @param column [ActiveRecord::ConnectionAdapters::Column]
+      # @return [String, nil] Formatted annotation comment line.
+      def format_column_comment(column)
+        return nil if column.comment.blank?
+        "   ^^ comment: #{column.comment}"
       end
 
     end
