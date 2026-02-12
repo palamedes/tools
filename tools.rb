@@ -45,6 +45,9 @@
 #   # Benchmark two methods
 #   Ellis::Tools.bench :old_method, :new_method
 #
+#   # Ambiki psql rewrite
+#   Ellis::Tools.rewrite_ambiki_pg_dump("/Users/jellis/T7/DBBackups/Ambiki/postgres-172.16.1.42-......")
+#
 module Ellis
   class Tools
     class << self
@@ -438,7 +441,7 @@ module Ellis
       # @param path [String] Path to dump file.
       #
       # @return [void]
-      def rewrite_pg_dump(path)
+      def rewrite_ambiki_pg_dump(path)
         replacements = {
           "ROLE ambiki" => "ROLE ambiki_development",
           "Owner: ambiki" => "Owner: ambiki_development",
