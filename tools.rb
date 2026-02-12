@@ -398,6 +398,59 @@ module Ellis
         nil
       end
 
+      ##
+      # Performs high-performance streaming text replacements on a large file.
+      #
+      # Designed for massive Postgres dump rewrites without loading the entire file
+      # into memory. Processes the file line-by-line and writes to a temp file.
+      #
+      # @param input_path [String] Path to the source file.
+      # @param replacements [Hash{String => String}] Literal string replacements.
+      # @param output_path [String, nil] Optional output path. Defaults to in-place rewrite.
+      #
+      # @return [void]
+      def rewrite_file(input_path, replacements:, output_path: nil)
+        raise ArgumentError, "File not found: #{input_path}" unless File.exist?(input_path)
+
+        output_path ||= "#{input_path}.tmp"
+        pattern = Regexp.union(replacements.keys)
+
+        start_time = Time.now
+        lines_processed = 0
+
+        File.open(output_path, "w") do |out|
+          File.foreach(input_path) do |line|
+            line = line.gsub(pattern) { |match| replacements[match] }
+            out.write(line)
+            lines_processed += 1
+          end
+        end
+
+        File.rename(output_path, input_path)
+        duration = Time.now - start_time
+        puts "✅ Rewrote #{lines_processed} lines in #{duration.round(2)}s"
+        nil
+      end
+
+      ##
+      # Rewrites a Postgres dump to match local development environment.
+      #
+      # @param path [String] Path to dump file.
+      #
+      # @return [void]
+      def rewrite_pg_dump(path)
+        replacements = {
+          "ROLE ambiki" => "ROLE ambiki_development",
+          "Owner: ambiki" => "Owner: ambiki_development",
+          "TO ambiki" => "TO ambiki_development",
+          "DATABASE ambiki" => "DATABASE ambiki_development",
+          "\\connect ambiki" => "\\connect ambiki_development",
+          "DROP DATABASE template1;" => "",
+          "en_US.utf8" => "en_US.UTF-8"
+        }
+        rewrite_file(path, replacements: replacements)
+      end
+
       private
 
       ##
