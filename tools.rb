@@ -333,6 +333,7 @@ module Ellis
 
           condition_suffix = format_conditions(validator)
 
+          next unless validator.respond_to?(:attributes)
           validator.attributes.each do |attribute|
             attr_name = attribute.to_s
 
