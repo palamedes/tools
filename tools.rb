@@ -72,17 +72,12 @@ module Ellis
       # @param target [Class] The ActiveRecord model or Rails controller to be annotated.
       # @param args [Hash] A hash of options to customize the behavior of the method.
       def annotate target, args = {}
-        defaults = {
-          to_clipboard: true,
-          to_screen: true,
-          to_file: false
-        }
-        options = defaults.merge args
-
-        if !!(target.is_a?(Class) && target < ActiveRecord::Base)
-          annotate_model target, options
-        elsif !!(target.is_a?(Class) && target < ApplicationController)
-          annotate_controller target, options
+        if target.is_a?(Class) && target < ActiveRecord::Base
+          defaults = { to_clipboard: true, to_screen: true, to_file: false }
+          annotate_model target, defaults.merge(args)
+        elsif target.is_a?(Class) && target < ApplicationController
+          defaults = { to_clipboard: false, to_screen: true, to_file: true }
+          annotate_controller target, defaults.merge(args)
         else
           puts "Error: I don't know what you're trying to do."
         end
@@ -657,46 +652,119 @@ module Ellis
       end
 
       # Annotate Controller -- See Annotate above for options
+      #
+      # When :to_file is true, inserts route comments directly above each action
+      # method definition in the controller source file. For example:
+      #
+      #   # [GET] /evaluations
+      #   def index
+      #
+      # Multiple verbs for the same action are combined:
+      #
+      #   # [PUT/PATCH] /evaluations/:id
+      #   def update
+      #
+      # Re-running will replace existing route comments rather than duplicating them.
       def annotate_controller(target, options)
         controller_name = target.name.underscore.gsub('_controller', '')
         routes = Rails.application.routes.routes
-
-        annotations = []
-        annotations << "# --- Controller: '#{target.name}' Annotation"
-        annotations << "#"
-        annotations << "# Available Routes:"
-        annotations << "#"
 
         matched_routes = routes.select do |r|
           r.defaults[:controller] == controller_name
         end
 
+        # Build a map of action_name => { verbs: [...], path: "..." }
+        action_routes = {}
         matched_routes.each do |r|
           verb = r.verb.is_a?(Regexp) ? r.verb.source.gsub("^", "").gsub("$", "") : r.verb
           path = r.path.spec.to_s.gsub("(.:format)", "")
           action = r.defaults[:action]
-          annotations << "# [#{verb}] #{path}  => #{action}"
+          next if verb.empty?
+          action_routes[action] ||= { verbs: [], path: path }
+          action_routes[action][:verbs] << verb unless action_routes[action][:verbs].include?(verb)
         end
 
+        # Build summary for screen/clipboard output
+        annotations = []
+        annotations << "# --- Controller: '#{target.name}' Annotation"
         annotations << "#"
-        annotations << "# Defined Actions:"
+        annotations << "# Routes:"
         annotations << "#"
-
-        target.action_methods.sort.each do |action|
-          route_info = matched_routes.find { |r| r.defaults[:action] == action }
-          if route_info
-            verb = route_info.verb.is_a?(Regexp) ? route_info.verb.source.gsub("^", "").gsub("$", "") : route_info.verb
-            path = route_info.path.spec.to_s.gsub("(.:format)", "")
-            annotations << "# #{action}: [#{verb}] #{path}"
-          else
-            annotations << "# #{action}: (no route found)"
-          end
+        action_routes.sort.each do |action, info|
+          verbs = info[:verbs].join("/")
+          annotations << "#  #{action.ljust(20)} [#{verbs}] #{info[:path]}"
+        end
+        # Show any actions that have no route
+        no_route_actions = target.action_methods.sort - action_routes.keys
+        if no_route_actions.any?
+          annotations << "#"
+          annotations << "# Actions without routes:"
+          no_route_actions.each { |a| annotations << "#  #{a}" }
         end
 
         puts "--- Controller Annotation ---" if options[:to_screen]
         puts annotations if options[:to_screen]
+        pbcopy(annotations) if options[:to_clipboard]
         puts "--- Copied to clipboard ---" if options[:to_clipboard]
-        pbcopy annotations if options[:to_clipboard]
+
+        if options[:to_file]
+          write_route_comments_to_controller(target, action_routes)
+        end
+      end
+
+      # Reads the controller source file and inserts or replaces route comments
+      # directly above each action's `def` line.
+      #
+      # Existing route comments (lines matching `# [VERB...] /path`) immediately
+      # above a `def` are stripped before inserting the current ones, so re-runs
+      # are safe.
+      def write_route_comments_to_controller(target, action_routes)
+        file_path = Module.const_source_location(target.name)&.first
+        unless file_path && File.exist?(file_path)
+          puts "❌ Could not determine the file path for #{target.name}. Skipping file write."
+          return
+        end
+
+        lines = File.readlines(file_path)
+        result = []
+        actions_annotated = []
+
+        i = 0
+        while i < lines.length
+          line = lines[i]
+
+          # Check if this line is a `def action_name` that we have route info for
+          if line =~ /^(\s*)def\s+(\w+)/
+            indent = $1
+            method_name = $2
+
+            if action_routes.key?(method_name)
+              # Strip any existing route comments immediately above this def
+              while result.any? && result.last =~ /^\s*# \[[A-Z\/]+\] \//
+                result.pop
+              end
+              # Remove blank line above if we stripped comments (we'll re-add one if needed)
+              # but keep at least one blank line for readability if there's code above
+              while result.length > 1 && result.last.strip.empty? && result[-2].strip.empty?
+                result.pop
+              end
+
+              info = action_routes[method_name]
+              verbs = info[:verbs].join("/")
+              result << "#{indent}# [#{verbs}] #{info[:path]}\n"
+              actions_annotated << method_name
+            end
+          end
+
+          result << line
+          i += 1
+        end
+
+        File.write(file_path, result.join)
+        puts "✅ Annotated #{actions_annotated.size} action#{'s' if actions_annotated.size != 1} in #{file_path}"
+        if actions_annotated.any?
+          puts "   #{actions_annotated.join(', ')}"
+        end
       end
 
       ##
