@@ -286,34 +286,87 @@ module Ellis
       #
       # @param model [Class] the ActiveRecord model class to check.
       # @return [Hash<String, Object>] the hash of required field names and their default values.
+      ##
+      # Returns a detailed hash describing all validations on a model's fields.
+      #
+      # Each key is the attribute (or foreign key) name. Each value is either a single
+      # validation description string or an array of descriptions when multiple validations
+      # apply to the same field.
+      #
+      # Validation descriptions include the type, any constraints/options, and any
+      # conditions (:if, :unless, :on) so you can see when a validation actually fires.
+      #
+      # @param model [Class] The ActiveRecord model class to inspect.
+      # @param validators_only [Boolean] When true, skip database-level NOT NULL checks. Default: true.
+      #
+      # @return [Hash<String, String|Array<String>>]
+      #
+      # @example
+      #   Ellis::Tools.required Evaluation
+      #   # => {
+      #   #   "date"       => "presence",
+      #   #   "patient_id" => "presence (association: :patient)",
+      #   #   "title"      => ["presence", "length(minimum: 2, maximum: 255)"],
+      #   #   "amount"     => "numericality(greater_than_or_equal_to: 0) — if: :billable?"
+      #   # }
       def required model, validators_only: true
         raise ArgumentError, 'Argument must be an ActiveRecord model class' unless model.is_a?(Class) && model < ActiveRecord::Base
-        required_fields = {}
-        # Step 1: Check database-level constraints (NOT NULL) if not skipping
+
+        field_validations = Hash.new { |h, k| h[k] = [] }
+
+        # Step 1: Database-level NOT NULL constraints (when not skipping)
         unless validators_only
           model.columns.each do |column|
-            # Skip auto-generated fields like 'id', 'created_at', and 'updated_at'
             next if ['id', 'created_at', 'updated_at'].include?(column.name)
-            # If column is NOT NULL, it's required. Store its default value or nil if no default exists.
-            required_fields[column.name] = column.default if !column.null
-          end
-        end
-        # Step 2: Check model-level validations (e.g., validates_presence_of)
-        model.validators.each do |validator|
-          if validator.is_a?(ActiveModel::Validations::PresenceValidator)
-            validator.attributes.each do |attribute|
-              attr_name = attribute.to_s
-              # If the attribute is an association, convert it to its foreign key
-              if (assoc = model.reflect_on_association(attribute)) && assoc.belongs_to?
-                attr_name = assoc.foreign_key
-              end
-              # Add the attribute to required fields unless it already exists (from the database check)
-              required_fields[attr_name] ||= nil
+            if !column.null
+              desc = column.default.present? ? "not_null(default: #{column.default})" : "not_null"
+              field_validations[column.name] << desc
             end
           end
         end
-        # Sort the hash by keys in alphabetical order and return it
-        required_fields.sort.to_h
+
+        # Build a map of belongs_to foreign_key -> association name for lookup
+        fk_to_assoc = {}
+        model.reflect_on_all_associations(:belongs_to).each do |assoc|
+          fk_to_assoc[assoc.foreign_key] = assoc.name
+        end
+
+        # Step 2: Inspect every validator on the model
+        model.validators.each do |validator|
+          desc = format_validator(validator)
+          next unless desc
+
+          condition_suffix = format_conditions(validator)
+
+          validator.attributes.each do |attribute|
+            attr_name = attribute.to_s
+
+            # If the attribute is an association, convert to its foreign key
+            assoc = model.reflect_on_association(attribute)
+            if assoc && assoc.belongs_to?
+              attr_name = assoc.foreign_key
+              assoc_note = " (association: :#{attribute})"
+            else
+              assoc_note = ""
+            end
+
+            field_validations[attr_name] << "#{desc}#{assoc_note}#{condition_suffix}"
+          end
+        end
+
+        # Deduplicate: if an association-tagged entry like "presence (association: :x)"
+        # exists alongside a plain "presence", keep only the association-tagged one.
+        result = {}
+        field_validations.sort.each do |key, descriptions|
+          descriptions.uniq!
+          # Remove plain entries when a more descriptive version exists for the same validation type
+          descriptions.reject! do |desc|
+            base = desc.split(" —").first.strip # strip conditions to get the core validation
+            descriptions.any? { |other| other != desc && other.split(" —").first.strip.start_with?(base) && other.include?("(") }
+          end
+          result[key] = descriptions.size == 1 ? descriptions.first : descriptions
+        end
+        result
       end
 
       ##
@@ -811,6 +864,92 @@ module Ellis
       rescue StandardError => e
         puts "⚠️  Could not retrieve check constraints for #{model.name}: #{e.message}"
         []
+      end
+
+      ##
+      # Formats a single validator into a human-readable description string.
+      #
+      # @param validator [ActiveModel::Validator]
+      # @return [String, nil] A description like "presence", "length(minimum: 2)", etc. Returns nil for unknown validators.
+      def format_validator(validator)
+        case validator
+        when ActiveModel::Validations::PresenceValidator
+          "presence"
+        when ActiveModel::Validations::AbsenceValidator
+          "absence"
+        when ActiveRecord::Validations::UniquenessValidator
+          opts = []
+          opts << "scope: #{Array(validator.options[:scope]).map(&:inspect).join(', ')}" if validator.options[:scope]
+          opts << "case_sensitive: #{validator.options[:case_sensitive]}" if validator.options.key?(:case_sensitive)
+          opts.any? ? "uniqueness(#{opts.join(', ')})" : "uniqueness"
+        when ActiveModel::Validations::LengthValidator
+          parts = validator.options.slice(:minimum, :maximum, :is, :in).map { |k, v| "#{k}: #{v}" }
+          parts.any? ? "length(#{parts.join(', ')})" : "length"
+        when ActiveModel::Validations::NumericalityValidator
+          parts = validator.options.except(:if, :unless, :on, :message, :allow_nil, :allow_blank)
+            .map { |k, v| "#{k}: #{v}" }
+          parts << "allow_nil" if validator.options[:allow_nil]
+          parts.any? ? "numericality(#{parts.join(', ')})" : "numericality"
+        when ActiveModel::Validations::InclusionValidator
+          set = validator.options[:in] || validator.options[:within]
+          if set.is_a?(Range)
+            "inclusion(in: #{set})"
+          elsif set.is_a?(Array) && set.size <= 10
+            "inclusion(in: #{set.inspect})"
+          elsif set.is_a?(Array)
+            "inclusion(in: [#{set.size} values])"
+          else
+            "inclusion"
+          end
+        when ActiveModel::Validations::ExclusionValidator
+          set = validator.options[:in] || validator.options[:within]
+          if set.is_a?(Array) && set.size <= 10
+            "exclusion(from: #{set.inspect})"
+          else
+            "exclusion"
+          end
+        when ActiveModel::Validations::FormatValidator
+          with = validator.options[:with]
+          without = validator.options[:without]
+          parts = []
+          parts << "with: #{with.inspect}" if with
+          parts << "without: #{without.inspect}" if without
+          parts.any? ? "format(#{parts.join(', ')})" : "format"
+        when ActiveModel::Validations::AcceptanceValidator
+          "acceptance"
+        when ActiveModel::Validations::ConfirmationValidator
+          "confirmation"
+        when ActiveRecord::Validations::AssociatedValidator
+          "associated"
+        else
+          # Custom validator — use class name
+          "custom(#{validator.class.name.demodulize.underscore})"
+        end
+      end
+
+      ##
+      # Extracts conditional options (:if, :unless, :on) from a validator
+      # and formats them as a readable suffix string.
+      #
+      # @param validator [ActiveModel::Validator]
+      # @return [String] e.g. " — if: :active?, on: :create" or "" if no conditions.
+      def format_conditions(validator)
+        parts = []
+        if validator.options[:if]
+          conditions = Array(validator.options[:if]).map { |c| c.is_a?(Proc) ? "proc{...}" : ":#{c}" }
+          parts << "if: #{conditions.join(', ')}"
+        end
+        if validator.options[:unless]
+          conditions = Array(validator.options[:unless]).map { |c| c.is_a?(Proc) ? "proc{...}" : ":#{c}" }
+          parts << "unless: #{conditions.join(', ')}"
+        end
+        if validator.options[:on]
+          contexts = Array(validator.options[:on]).map { |c| ":#{c}" }
+          parts << "on: #{contexts.join(', ')}"
+        end
+        parts << "allow_nil" if validator.options[:allow_nil] && !validator.is_a?(ActiveModel::Validations::NumericalityValidator)
+        parts << "allow_blank" if validator.options[:allow_blank]
+        parts.any? ? " — #{parts.join(', ')}" : ""
       end
 
       ##
