@@ -679,6 +679,7 @@ module Ellis
         matched_routes.each do |r|
           verb = r.verb.is_a?(Regexp) ? r.verb.source.gsub("^", "").gsub("$", "") : r.verb
           path = r.path.spec.to_s.gsub("(.:format)", "")
+          path = resolve_friendly_params(path, controller_name)
           action = r.defaults[:action]
           next if verb.empty?
           action_routes[action] ||= { verbs: [], path: path }
@@ -765,6 +766,34 @@ module Ellis
         puts "✅ Annotated #{actions_annotated.size} action#{'s' if actions_annotated.size != 1} in #{file_path}"
         if actions_annotated.any?
           puts "   #{actions_annotated.join(', ')}"
+        end
+      end
+
+      # Replaces route params like `:id` or `:user_id` with `{:id|:slug}` when
+      # the corresponding model uses friendly_id.
+      def resolve_friendly_params(path, controller_name)
+        # Infer the "own" model from the controller name (e.g. "admin/users" -> "User")
+        own_model_name = controller_name.split("/").last.classify
+
+        path.gsub(/:(\w+_id|id)\b/) do |match|
+          param = $1
+          model_name = if param == "id"
+                         own_model_name
+                       else
+                         param.sub(/_id$/, "").classify
+                       end
+
+          begin
+            model = model_name.constantize
+            if model.respond_to?(:friendly_id_config)
+              slug_column = model.friendly_id_config.slug_column rescue "slug"
+              "{:#{param}|:#{slug_column}}"
+            else
+              match
+            end
+          rescue NameError
+            match
+          end
         end
       end
 
@@ -1057,4 +1086,3 @@ module Ellis
   end
 
 end
-
