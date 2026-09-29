@@ -1,0 +1,130 @@
+<title>{{TITLE}}</title>
+<!--
+  The /screenshots skill's artifact page. Fill the TITLE placeholder (both places, e.g.
+  "PR 7650 Screenshots") and replace the FIGURES placeholder with one block per image, in order:
+
+    <figure>
+      <div class="bar">
+        <span class="count">1 of 3</span>
+        <button type="button" data-copy="img/01-documents-card.png">Copy image</button>
+      </div>
+      <img src="img/01-documents-card.png" alt="(the image's own header title)" width="1832" height="688" loading="lazy">
+    </figure>
+
+  The images are published beside this page (Artifact `files`: "img/NN-name.png" => local path).
+  Everything a reader needs is already inside each image, so the page adds nothing but
+  the title and the copy buttons.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --ground: #eef1f6;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --muted: #51607a;
+    --line: #d5dce8;
+    --accent: #e11d48;
+    --accent-ink: #ffffff;
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 10px 28px rgba(15, 23, 42, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0c1220;
+      --surface: #151d2e;
+      --ink: #e6ebf4;
+      --muted: #9aa8c2;
+      --line: #28344d;
+      --accent: #fb5b7c;
+      --accent-ink: #1a0a10;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0c1220;
+    --surface: #151d2e;
+    --ink: #e6ebf4;
+    --muted: #9aa8c2;
+    --line: #28344d;
+    --accent: #fb5b7c;
+    --accent-ink: #1a0a10;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.5 "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    padding-inline: 16px;
+    padding-block: 28px 56px;
+  }
+  .wrap { max-width: 1900px; margin: 0 auto; display: grid; gap: 24px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
+  h1 { margin: 0; font-size: clamp(22px, 3vw, 28px); line-height: 1.2; font-weight: 700; text-wrap: balance; }
+  .hint { margin: 0; color: var(--muted); }
+  main { display: grid; gap: 24px; }
+  figure {
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+  }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .count { font: 500 13px/1 "IBM Plex Mono", ui-monospace, Menlo, monospace; color: var(--muted); letter-spacing: 0.03em; }
+  figure img { display: block; width: 100%; max-width: 100%; height: auto; border-radius: 6px; background: #ffffff; }
+  button {
+    font: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 1;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    min-width: 8.5rem;
+  }
+  button:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>{{TITLE}}</h1>
+    <p class="hint">Copy an image with its button, or right-click it and choose Copy Image.</p>
+  </header>
+  <main>
+{{FIGURES}}
+  </main>
+</div>
+
+<script>
+  // Copies the image itself (not a link) so it pastes into GitHub, Slack or a doc.
+  // The fetch rides inside the ClipboardItem so the write stays in the click's gesture.
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest('button[data-copy]');
+    if (!button) return;
+    var label = button.dataset.label || (button.dataset.label = button.textContent);
+    function say(text) {
+      button.textContent = text;
+      clearTimeout(button._reset);
+      button._reset = setTimeout(function () { button.textContent = label; }, 2400);
+    }
+    try {
+      var blob = fetch(button.getAttribute('data-copy')).then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.blob();
+      });
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+        .then(function () { say('Copied'); }, function () { say('Right-click to copy'); });
+    } catch (error) {
+      say('Right-click to copy');
+    }
+  });
+</script>

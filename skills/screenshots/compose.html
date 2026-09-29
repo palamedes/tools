@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Annotated screenshot</title>
+<!--
+  The /screenshots skill's annotator. harness.rb copies this file next to a raw
+  screenshot, fills window.__SS (the header text, the image, and each
+  highlight's rectangle, label and note), opens it in the same headless Chrome
+  and screenshots the result. Everything is drawn here, outside the app, so no
+  app CSS can hide or shift an annotation. Sets window.__SS_DONE when ready.
+-->
+<style>
+  :root {
+    --accent: #e11d48;
+    --band: #0b1733;
+    --band-ink: #ffffff;
+    --canvas: #eef1f6;
+    --card: #ffffff;
+    --ink: #0f172a;
+    --muted: #475569;
+    --line: #d5dce8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--canvas); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #sheet { position: relative; display: inline-block; padding-bottom: 36px; background: var(--canvas); }
+  /* A compact band (about half its first height): the title and the pills share one row, the
+     subtitle sits under them. */
+  header { background: var(--band); color: var(--band-ink); padding: 13px 36px 12px; }
+  header .top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+  header h1 { margin: 0; font-size: 20px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+  header p { margin: 3px 0 0; font-size: 14px; line-height: 1.35; opacity: 0.9; max-width: 1500px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { font-size: 11.5px; font-weight: 600; line-height: 1; padding: 5px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); color: #ffffff; }
+  .pill.flag { background: #fde68a; color: #422006; }
+  #stage { position: relative; display: flex; align-items: flex-start; padding: 30px 36px 0; }
+  #shot { position: relative; flex: none; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18); background: #ffffff; }
+  #shot img { display: block; max-width: none; }
+  #fade div { position: absolute; pointer-events: none; }
+  #gutter { position: relative; flex: none; width: 440px; margin-left: 64px; }
+  .card { position: absolute; left: 0; width: 440px; background: var(--card); border: 2px solid var(--accent); border-radius: 12px; padding: 14px 18px 15px 62px; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14); }
+  .card .num { position: absolute; left: 14px; top: 13px; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #ffffff; font-weight: 800; font-size: 18px; line-height: 34px; text-align: center; }
+  .card h3 { margin: 0; font-size: 20px; line-height: 1.25; font-weight: 700; }
+  .card p { margin: 5px 0 0; font-size: 16.5px; line-height: 1.42; color: var(--muted); }
+  svg#ink { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="sheet">
+  <header id="band"></header>
+  <div id="stage"><div id="shot"><img id="img" alt=""><div id="fade"></div></div><div id="gutter"></div></div>
+  <svg id="ink" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+<script>/*__CONFIG__*/</script>
+<script>
+(function () {
+  var C = window.__SS || {};
+  var NS = 'http://www.w3.org/2000/svg';
+  var accent = C.accent || '#e11d48';
+  document.documentElement.style.setProperty('--accent', accent);
+
+  function add(parent, tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    parent.appendChild(node);
+    return node;
+  }
+
+  // The header band: the title with the pills beside it, then one sentence on what the shot shows.
+  var band = document.getElementById('band');
+  var titleRow = add(band, 'div', 'top');
+  add(titleRow, 'h1', null, C.title || '');
+  if (C.details && C.details.length) {
+    var pills = add(titleRow, 'div', 'pills');
+    C.details.forEach(function (detail) {
+      add(pills, 'span', /test data|fake/i.test(detail) ? 'pill flag' : 'pill', detail);
+    });
+  }
+  if (C.subtitle) add(band, 'p', null, C.subtitle);
+
+  // The shot, cropped to the clip when one was given.
+  var clip = C.clip || { x: 0, y: 0, w: C.image_width, h: C.image_height };
+  clip.x = Math.max(0, clip.x);
+  clip.y = Math.max(0, clip.y);
+  clip.w = Math.min(clip.w, C.image_width - clip.x);
+  clip.h = Math.min(clip.h, C.image_height - clip.y);
+  var shot = document.getElementById('shot');
+  var img = document.getElementById('img');
+  shot.style.width = clip.w + 'px';
+  shot.style.height = clip.h + 'px';
+  img.width = C.image_width;
+  img.height = C.image_height;
+  img.style.marginLeft = -clip.x + 'px';
+  img.style.marginTop = -clip.y + 'px';
+
+  // The margin around the focus (the clip elements and the highlights) fades to
+  // white toward the crop's edges, so anything the crop cuts through reads as
+  // context instead of a broken edge.
+  if (C.focus) {
+    var fade = document.getElementById('fade');
+    var fx0 = Math.max(0, C.focus.x - clip.x), fy0 = Math.max(0, C.focus.y - clip.y);
+    var fx1 = Math.min(clip.w, C.focus.x + C.focus.w - clip.x), fy1 = Math.min(clip.h, C.focus.y + C.focus.h - clip.y);
+    [
+      { css: 'left:0;top:0;width:100%;height:' + fy0 + 'px', to: 'bottom', size: fy0 },
+      { css: 'left:0;top:' + fy1 + 'px;width:100%;height:' + (clip.h - fy1) + 'px', to: 'top', size: clip.h - fy1 },
+      { css: 'left:0;top:0;height:100%;width:' + fx0 + 'px', to: 'right', size: fx0 },
+      { css: 'left:' + fx1 + 'px;top:0;height:100%;width:' + (clip.w - fx1) + 'px', to: 'left', size: clip.w - fx1 }
+    ].forEach(function (strip) {
+      if (strip.size < 2) return;
+      var node = add(fade, 'div');
+      node.style.cssText = strip.css + ';background:linear-gradient(to ' + strip.to + ', #ffffff, rgba(255, 255, 255, 0))';
+    });
+  }
+
+  // Highlights outside the clip cannot be shown. The rest are numbered in reading
+  // order: row by row down the shot (targets whose middles sit within a few
+  // pixels share a row), left to right within a row. Badges and cards share it,
+  // so card 1 is the top card and aims at the first thing read.
+  function middle(h) { return h.rect.y + h.rect.h / 2; }
+  var visible = (C.highlights || []).filter(function (h) {
+    var r = h.rect;
+    return r && r.x + r.w > clip.x && r.x < clip.x + clip.w && r.y + r.h > clip.y && r.y < clip.y + clip.h;
+  }).sort(function (a, b) { return middle(a) - middle(b) || a.rect.x - b.rect.x; });
+  var items = [], row = [], rowTop = null;
+  function flushRow() {
+    row.sort(function (a, b) { return a.rect.x - b.rect.x; });
+    items.push.apply(items, row);
+    row = [];
+  }
+  visible.forEach(function (h) {
+    if (rowTop !== null && middle(h) - rowTop > 14) { flushRow(); rowTop = null; }
+    if (rowTop === null) rowTop = middle(h);
+    row.push(h);
+  });
+  flushRow();
+  items.forEach(function (h, i) { h.n = i + 1; });
+  var carded = items.filter(function (h) { return h.arrow !== false && (h.label || h.note); });
+
+  var gutter = document.getElementById('gutter');
+  if (!carded.length) gutter.style.display = 'none';
+  carded.forEach(function (h) {
+    var card = add(gutter, 'div', 'card');
+    add(card, 'div', 'num', String(h.n));
+    if (h.label) add(card, 'h3', null, h.label);
+    if (h.note) add(card, 'p', null, h.note);
+    h.card = card;
+  });
+
+  function svgEl(parent, tag, attrs) {
+    var node = document.createElementNS(NS, tag);
+    Object.keys(attrs).forEach(function (key) { node.setAttribute(key, attrs[key]); });
+    parent.appendChild(node);
+    return node;
+  }
+
+  // Boxes that touch or overlap top to bottom (stacked rows) give back padding
+  // at the shared edge so each keeps its own outline. Only padding: an edge
+  // never comes closer than CLEAR to what it frames, so it never crosses text.
+  var GAP = 12, CLEAR = 5;
+  function separate(list) {
+    list.sort(function (a, b) { return a.box.y - b.box.y; });
+    list.forEach(function (upper, i) {
+      list.slice(i + 1).forEach(function (lower) {
+        var U = upper.box, L = lower.box;
+        var sideBySide = U.x + U.w <= L.x || L.x + L.w <= U.x;
+        var nested = (L.y >= U.y && L.y + L.h <= U.y + U.h) || (U.y >= L.y && U.y + U.h <= L.y + L.h);
+        if (sideBySide || nested || L.y - (U.y + U.h) >= GAP) return;
+        var upperMin = upper.inner.y + upper.inner.h + CLEAR;
+        var lowerMax = lower.inner.y - CLEAR;
+        var seam = (upperMin + lowerMax) / 2;
+        var upperBottom = Math.min(U.y + U.h, Math.max(upperMin, seam - GAP / 2));
+        var lowerTop = Math.max(L.y, Math.min(lowerMax, seam + GAP / 2));
+        U.h = upperBottom - U.y;
+        L.h = L.y + L.h - lowerTop;
+        L.y = lowerTop;
+      });
+    });
+  }
+
+  function draw() {
+    var sheet = document.getElementById('sheet');
+
+    // Cards stack in badge order, each aimed at its highlight's middle, never overlapping.
+    var cursor = 0;
+    carded.forEach(function (h) {
+      var height = h.card.offsetHeight;
+      var want = (middle(h) - clip.y) - height / 2;
+      var top = Math.max(want, cursor);
+      h.card.style.top = top + 'px';
+      cursor = top + height + 18;
+    });
+    if (carded.length) gutter.style.height = Math.max(cursor - 18, clip.h) + 'px';
+
+    var sheetBox = sheet.getBoundingClientRect();
+    var shotBox = shot.getBoundingClientRect();
+    var ox = shotBox.left - sheetBox.left + 1;
+    var oy = shotBox.top - sheetBox.top + 1;
+
+    var svg = document.getElementById('ink');
+    svg.setAttribute('width', sheet.scrollWidth);
+    svg.setAttribute('height', sheet.scrollHeight);
+    var defs = svgEl(svg, 'defs', {});
+    var marker = svgEl(defs, 'marker', { id: 'ss-arrow', viewBox: '0 0 10 10', refX: 7, refY: 5,
+                                         markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
+    svgEl(marker, 'path', { d: 'M0,0 L10,5 L0,10 z', fill: accent });
+
+    items.forEach(function (h) {
+      var r = h.rect;
+      var pad = h.pad == null ? 6 : h.pad;
+      h.inner = { x: ox + r.x - clip.x, y: oy + r.y - clip.y, w: r.w, h: r.h };
+      h.box = { x: h.inner.x - pad, y: h.inner.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+    });
+    separate(items.filter(function (h) { return h.shape !== 'circle' && h.shape !== 'none'; }));
+
+    // Shapes: a white halo under the accent stroke keeps them readable on any UI.
+    items.forEach(function (h) {
+      var b = h.box;
+      if (h.shape === 'circle') {
+        // A small target still gets a round circle, never a sliver.
+        var cx = b.x + b.w / 2, cy = b.y + b.h / 2, rx = Math.max(b.w / 2 + 8, 26), ry = Math.max(b.h / 2 + 8, 26);
+        svgEl(svg, 'ellipse', { cx: cx, cy: cy, rx: rx, ry: ry, fill: 'none', stroke: '#ffffff', 'stroke-width': 9, opacity: 0.9 });
+        svgEl(svg, 'ellipse', { cx: cx, cy: cy, rx: rx, ry: ry, fill: 'none', stroke: accent, 'stroke-width': 4.5 });
+        h.anchor = { x: cx + rx, y: cy };
+        h.badge = { x: cx - rx * 0.71, y: cy - ry * 0.71 };
+      } else if (h.shape === 'none') {
+        h.anchor = { x: b.x + b.w, y: b.y + b.h / 2 };
+        h.badge = null;
+      } else {
+        svgEl(svg, 'rect', { x: b.x, y: b.y, width: b.w, height: b.h, rx: 10, fill: 'none', stroke: '#ffffff', 'stroke-width': 9, opacity: 0.9 });
+        svgEl(svg, 'rect', { x: b.x, y: b.y, width: b.w, height: b.h, rx: 10, fill: 'none', stroke: accent, 'stroke-width': 4.5 });
+        h.anchor = { x: b.x + b.w, y: b.y + b.h / 2 };
+        // The badge hangs off the box's left edge, clear of the labels just
+        // above a field and of the first words inside the box.
+        h.badge = { x: Math.max(21, b.x - 21), y: b.y + Math.min(b.h / 2, 24) };
+      }
+    });
+
+    // Arrows from each card into its highlight.
+    carded.forEach(function (h) {
+      var card = h.card.getBoundingClientRect();
+      var sx = card.left - sheetBox.left - 2;
+      var sy = card.top - sheetBox.top + Math.min(card.height / 2, 30);
+      var ex = h.anchor.x + 5;
+      var ey = h.anchor.y;
+      var bend = Math.max(60, (sx - ex) * 0.45);
+      var d = 'M' + sx + ',' + sy + ' C' + (sx - bend) + ',' + sy + ' ' + (ex + bend) + ',' + ey + ' ' + ex + ',' + ey;
+      svgEl(svg, 'path', { d: d, fill: 'none', stroke: '#ffffff', 'stroke-width': 8, 'stroke-linecap': 'round', opacity: 0.9 });
+      svgEl(svg, 'path', { d: d, fill: 'none', stroke: accent, 'stroke-width': 3.5, 'stroke-linecap': 'round', 'marker-end': 'url(#ss-arrow)' });
+    });
+
+    // Numbered badges on the shapes, matching the cards.
+    items.forEach(function (h) {
+      if (!h.badge) return;
+      svgEl(svg, 'circle', { cx: h.badge.x, cy: h.badge.y, r: 19, fill: '#ffffff' });
+      svgEl(svg, 'circle', { cx: h.badge.x, cy: h.badge.y, r: 16, fill: accent });
+      var label = svgEl(svg, 'text', { x: h.badge.x, y: h.badge.y + 6, 'text-anchor': 'middle', 'font-size': 17, 'font-weight': 800,
+                                       fill: '#ffffff', 'font-family': '-apple-system, Helvetica, Arial, sans-serif' });
+      label.textContent = String(h.n);
+    });
+
+    window.__SS_DONE = true;
+  }
+
+  img.onload = draw;
+  img.onerror = function () { window.__SS_DONE = true; };
+  img.src = C.image;
+})();
+</script>
+</body>
+</html>
