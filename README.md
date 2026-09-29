@@ -136,3 +136,23 @@ Ellis::Tools.rewrite_file("/path/to/dump.sql", replacements: { "old_role" => "ne
 # Preset rewrite for Ambiki dumps
 Ellis::Tools.rewrite_ambiki_pg_dump("/path/to/dump.sql")
 ```
+
+---
+
+## Claude Code skills
+
+`skills/` holds personal Claude Code skills. Each folder is one skill: copy or symlink it into `~/.claude/skills/` and it becomes a slash command.
+
+```bash
+ln -s /path/to/tools/skills/eod ~/.claude/skills/eod
+```
+
+| Skill | What it does |
+|---|---|
+| `/address` | Works through the review comments on a GitHub PR one at a time: fix it, push back, write a spec, or ask. One commit per comment, with replies held until the push is approved. |
+| `/close-merged` | Deletes local branches whose PRs have merged, then reports PR state and unanswered review comments for the branches that remain. |
+| `/eod` | Builds a paste-ready end-of-day report from the day's GitHub activity across the Ambiki org, plus any extra activities passed in. |
+| `/research` | Deep-dives an Asana ticket: related tickets, the root cause in the code, and a few ways to fix it. |
+| `/screenshots` | Screenshots a PR's visible changes in headless Chrome on test data, annotates each image, and publishes them on one claude.ai page with copy buttons. |
+
+Most of these were written around Ambiki's Rails app and GitHub workflow, so paths, repo names and commands may need adjusting elsewhere.
